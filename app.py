@@ -16,7 +16,6 @@ REPO_PATH = None
 CONFIG_FILE = Path.home() / '.gpx_viewer_config.json'
 
 def load_config():
-    """Charge la configuration depuis le fichier"""
     if CONFIG_FILE.exists():
         try:
             with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
@@ -26,7 +25,6 @@ def load_config():
     return {'last_path': ''}
 
 def save_config(path):
-    """Sauvegarde le chemin dans la configuration"""
     try:
         config = {'last_path': path}
         with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
@@ -34,8 +32,24 @@ def save_config(path):
     except Exception as e:
         print(f"⚠️  Erreur sauvegarde config: {e}")
 
+def find_preview_png(folder_path, gpx_filename):
+    """Trouve le PNG de prévisualisation associé à un GPX"""
+    gpx_base = Path(gpx_filename).stem.lower()
+    
+    # Chercher un PNG avec le même nom de base
+    for f in folder_path.iterdir():
+        if f.suffix.lower() == '.png':
+            if f.stem.lower() == gpx_base:
+                return f.name
+    
+    # Sinon, prendre le premier PNG du dossier
+    for f in folder_path.iterdir():
+        if f.suffix.lower() == '.png':
+            return f.name
+    
+    return None
+
 def select_directory(last_path=''):
-    """Affiche une boîte de dialogue pour sélectionner le répertoire"""
     root = tk.Tk()
     root.withdraw()
     
@@ -112,7 +126,7 @@ def select_directory(last_path=''):
             messagebox.showerror("Erreur", "Le chemin n'existe pas ou n'est pas un dossier")
             return
         result[0] = path
-        save_config(path)  # Sauvegarde le chemin
+        save_config(path)
         dialog.destroy()
         root.quit()
     
@@ -162,7 +176,7 @@ def index():
 
 @app.route('/api/structure')
 def get_structure():
-    """Scanne la structure du répertoire et retourne l'arborescence"""
+    """Scanne la structure et retourne uniquement les GPX avec leur PNG de prévisualisation"""
     if not REPO_PATH:
         return jsonify([])
     
@@ -171,23 +185,31 @@ def get_structure():
     for root, dirs, files in os.walk(REPO_PATH):
         dirs[:] = [d for d in dirs if not d.startswith('.') and d != '__pycache__']
         
-        gpx_files = [f for f in files if f.endswith('.gpx')]
-        png_files = [f for f in files if f.endswith('.png')]
+        gpx_files = [f for f in files if f.lower().endswith('.gpx')]
         
-        if gpx_files or png_files:
+        if gpx_files:
             rel_path = Path(root).relative_to(REPO_PATH)
+            folder_path = Path(root)
+            
+            # Pour chaque GPX, trouver le PNG de prévisualisation associé
+            gpx_with_preview = []
+            for gpx in gpx_files:
+                preview = find_preview_png(folder_path, gpx)
+                gpx_with_preview.append({
+                    'name': gpx,
+                    'preview': preview
+                })
+            
             structure.append({
                 'path': str(rel_path).replace('\\', '/'),
                 'name': Path(root).name,
-                'gpx': gpx_files,
-                'png': png_files
+                'gpx': gpx_with_preview
             })
     
     return jsonify(structure)
 
 @app.route('/files/<path:filepath>')
 def serve_file(filepath):
-    """Sert les fichiers GPX et PNG"""
     if not REPO_PATH:
         return "Répertoire non configuré", 404
     
@@ -202,7 +224,6 @@ def serve_file(filepath):
 
 @app.route('/api/readme')
 def get_readme():
-    """Retourne le contenu du README en HTML rendu"""
     if not REPO_PATH:
         return "Répertoire non configuré", 404
     
@@ -212,13 +233,7 @@ def get_readme():
             content = readme_path.read_text(encoding='utf-8')
             html_content = markdown.markdown(
                 content,
-                extensions=[
-                    'tables',
-                    'fenced_code',
-                    'codehilite',
-                    'toc',
-                    'nl2br'
-                ],
+                extensions=['tables', 'fenced_code', 'codehilite', 'toc', 'nl2br'],
                 output_format='html5'
             )
             return html_content
@@ -227,7 +242,6 @@ def get_readme():
     return "README non trouvé", 404
 
 def open_browser():
-    """Ouvre le navigateur après un court délai"""
     import time
     time.sleep(1.5)
     webbrowser.open('http://localhost:5000')
@@ -238,14 +252,12 @@ def main():
     print("🗺️  GPX Purgamentorum Viewer")
     print("=" * 40)
     
-    # Charger le dernier chemin utilisé
     config = load_config()
     last_path = config.get('last_path', '')
     
     if last_path:
         print(f"💾 Dernier chemin: {last_path}")
     
-    # Afficher la boîte de dialogue
     REPO_PATH = select_directory(last_path)
     
     if not REPO_PATH:
@@ -253,7 +265,7 @@ def main():
         sys.exit(0)
     
     print(f"✅ Répertoire sélectionné: {REPO_PATH}")
-    print(f"🌐 Serveur démarré sur http://localhost:5000")
+    print(f" Serveur démarré sur http://localhost:5000")
     print(f"📄 Rendu Markdown activé pour le README")
     print("=" * 40)
     
